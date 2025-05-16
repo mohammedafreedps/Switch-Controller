@@ -10,6 +10,9 @@ const char *password = "yespass1234";
 const int pin4 = 4; // GPIO4 (D2)
 const int pin5 = 5; // GPIO5 (D1)
 
+const int lightSwitchPin = 14;  // D5
+const int fanSwitchPin = 12;  // D6
+
 ESP8266WebServer server(80);
 
 String fanStatus = "off";
@@ -104,30 +107,37 @@ void setup() {
   Serial.println("HTTP server started");
 }
 
+bool lastLightSwitchState = digitalRead(lightSwitchPin);
+bool lastFanSwitchState = digitalRead(fanSwitchPin);
+
 void loop() {
   server.handleClient();
+
+  // Read current switch state
+  bool currentLightSwitchState = digitalRead(lightSwitchPin);
+  bool currentFanSwitchState = digitalRead(fanSwitchPin);
+
+  // If light switch changed position
+  if (currentLightSwitchState != lastLightSwitchState) {
+    if (lightStatus == "off") {
+      lightStatus = "on";
+      digitalWrite(pin5, LOW);  // Turn ON
+    } else {
+      lightStatus = "off";
+      digitalWrite(pin5, HIGH); // Turn OFF
+    }
+    lastLightSwitchState = currentLightSwitchState;
+  }
+
+  // If fan switch changed position
+  if (currentFanSwitchState != lastFanSwitchState) {
+    if (fanStatus == "off") {
+      fanStatus = "on";
+      digitalWrite(pin4, LOW);  // Turn ON
+    } else {
+      fanStatus = "off";
+      digitalWrite(pin4, HIGH); // Turn OFF
+    }
+    lastFanSwitchState = currentFanSwitchState;
+  }
 }
-
-
-
-// const int pin4 = 4;  // GPIO4 (D2)
-// const int pin5 = 5;  // GPIO5 (D1)
-
-// void setup() {
-//   Serial.begin(9600);
-//   pinMode(pin4, OUTPUT);
-//   pinMode(pin5, OUTPUT);
-//   Serial.println("Setup done, starting loop...");
-// }
-
-// void loop() {
-//   Serial.println("Turning ON pin4, OFF pin5");
-//   digitalWrite(pin4, HIGH);  // Turn ON LED on GPIO4
-//   digitalWrite(pin5, LOW);   // Turn OFF LED on GPIO5
-//   delay(1000);               // Wait 1 second
-
-//   Serial.println("Turning OFF pin4, ON pin5");
-//   digitalWrite(pin4, LOW);   // Turn OFF LED on GPIO4
-//   digitalWrite(pin5, HIGH);  // Turn ON LED on GPIO5
-//   delay(1000);               // Wait 1 second
-// }

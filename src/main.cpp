@@ -2,7 +2,11 @@
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ArduinoOTA.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
 #include <ArduinoJson.h>
+#include <NTPClient.h>
 
 const char *ssid = "MO";
 const char *password = "yespass1234";
@@ -10,34 +14,52 @@ const char *password = "yespass1234";
 const int pin4 = 4; // GPIO4 (D2)
 const int pin5 = 5; // GPIO5 (D1)
 
-const int lightSwitchPin = 14;  // D5
-const int fanSwitchPin = 12;  // D6
+const int lightSwitchPin = 14; // D5
+const int fanSwitchPin = 12;   // D6
+
+const int onboardLED = 2; 
+
+int currentHour = 0;
+int currentminuts = 0;
+
+int alarmHour = 0;
+int alarmMinuts = 0;
 
 ESP8266WebServer server(80);
 
 String fanStatus = "off";
 String lightStatus = "off";
 
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800);
+
 // Function to send CORS headers
-void sendCorsHeaders() {
+void sendCorsHeaders()
+{
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   server.sendHeader("Access-Control-Allow-Headers", "*");
 }
 
 // Function to update GPIO pins based on fan/light status
-void updatePins() {
+void updatePins()
+{
   digitalWrite(pin4, fanStatus == "on" ? LOW : HIGH);
   digitalWrite(pin5, lightStatus == "on" ? LOW : HIGH);
 }
 
 // Handle GET request
-void handleGet() {
+void handleGet()
+{
   sendCorsHeaders();
 
-  JsonDocument doc;  // use JsonDocument instead of DynamicJsonDocument
+  JsonDocument doc; // use JsonDocument instead of DynamicJsonDocument
   doc["lightStatus"] = lightStatus;
   doc["fanStatus"] = fanStatus;
+  doc["Hour"] = currentHour;
+  doc["Minuts"] = currentminuts;
+  doc["alarmHour"] = alarmHour;
+  doc["alrmMinuts"] = alarmMinuts;
 
   String response;
   serializeJson(doc, response);
@@ -45,20 +67,25 @@ void handleGet() {
 }
 
 // Handle POST request
-void handlePost() {
+void handlePost()
+{
   sendCorsHeaders();
 
-  if (server.hasArg("plain")) {
+  if (server.hasArg("plain"))
+  {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
 
-    if (error) {
+    if (error)
+    {
       server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
       return;
     }
 
     fanStatus = doc["fan"].as<String>();
     lightStatus = doc["light"].as<String>();
+    alarmHour = doc["h"];
+    alarmMinuts = doc["m"];
 
     updatePins();
 
@@ -66,16 +93,21 @@ void handlePost() {
     res["status"] = "success";
     res["fan"] = fanStatus;
     res["light"] = lightStatus;
+    res["alarm hour"] = alarmHour;
+    res["alarm minuts"] = alarmMinuts;
 
     String response;
     serializeJson(res, response);
     server.send(200, "application/json", response);
-  } else {
+  }
+  else
+  {
     server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No JSON body\"}");
   }
 }
 
-void setup() {
+void setup()
+{
   Serial.begin(9600);
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
@@ -86,10 +118,17 @@ void setup() {
   digitalWrite(pin4, HIGH);
   digitalWrite(pin5, HIGH);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  pinMode(onboardLED, OUTPUT);
+  digitalWrite(onboardLED, HIGH);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(500);
     Serial.print(".");
   }
+
+  ArduinoOTA.setHostname("esp8266-ota");
+  ArduinoOTA.begin();
 
   Serial.println("\nConnected! IP address: ");
   Serial.println(WiFi.localIP());
@@ -98,31 +137,39 @@ void setup() {
   server.on("/data", HTTP_POST, handlePost);
 
   // CORS Preflight support (OPTIONS request)
-  server.on("/data", HTTP_OPTIONS, []() {
-    sendCorsHeaders();
-    server.send(204); // No Content
-  });
-
+  server.on("/data", HTTP_OPTIONS, []()
+            {
+              sendCorsHeaders();
+              server.send(204); // No Content
+            });
   server.begin();
+  digitalWrite(onboardLED, LOW);
   Serial.println("HTTP server started");
+  timeClient.begin();
 }
 
 bool lastLightSwitchState = digitalRead(lightSwitchPin);
 bool lastFanSwitchState = digitalRead(fanSwitchPin);
 
-void loop() {
+void loop()
+{
   server.handleClient();
-
+  ArduinoOTA.handle();
+  timeClient.update();
   // Read current switch state
   bool currentLightSwitchState = digitalRead(lightSwitchPin);
   bool currentFanSwitchState = digitalRead(fanSwitchPin);
 
   // If light switch changed position
-  if (currentLightSwitchState != lastLightSwitchState) {
-    if (lightStatus == "off") {
+  if (currentLightSwitchState != lastLightSwitchState)
+  {
+    if (lightStatus == "off")
+    {
       lightStatus = "on";
-      digitalWrite(pin5, LOW);  // Turn ON
-    } else {
+      digitalWrite(pin5, LOW); // Turn ON
+    }
+    else
+    {
       lightStatus = "off";
       digitalWrite(pin5, HIGH); // Turn OFF
     }
@@ -130,14 +177,31 @@ void loop() {
   }
 
   // If fan switch changed position
-  if (currentFanSwitchState != lastFanSwitchState) {
-    if (fanStatus == "off") {
+  if (currentFanSwitchState != lastFanSwitchState)
+  {
+    if (fanStatus == "off")
+    {
       fanStatus = "on";
-      digitalWrite(pin4, LOW);  // Turn ON
-    } else {
+      digitalWrite(pin4, LOW); // Turn ON
+    }
+    else
+    {
       fanStatus = "off";
       digitalWrite(pin4, HIGH); // Turn OFF
     }
     lastFanSwitchState = currentFanSwitchState;
   }
+
+  currentHour = timeClient.getHours();
+
+  currentminuts = timeClient.getMinutes();
+  if (currentHour == alarmHour && currentminuts == alarmMinuts) {
+  // Set light ON
+  lightStatus = "on";
+  digitalWrite(pin5, LOW);
+
+  // Set fan OFF
+  fanStatus = "off";
+  digitalWrite(pin4, HIGH);
+}
 }

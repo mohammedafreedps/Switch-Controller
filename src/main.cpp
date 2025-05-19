@@ -17,7 +17,7 @@ const int pin5 = 5; // GPIO5 (D1)
 const int lightSwitchPin = 14; // D5
 const int fanSwitchPin = 12;   // D6
 
-const int onboardLED = 2; 
+const int onboardLED = 2;
 
 int currentHour = 0;
 int currentminuts = 0;
@@ -46,6 +46,51 @@ void updatePins()
 {
   digitalWrite(pin4, fanStatus == "on" ? LOW : HIGH);
   digitalWrite(pin5, lightStatus == "on" ? LOW : HIGH);
+}
+
+void handleFanOn()
+{
+  fanStatus = "on";
+
+  JsonDocument res;
+  res["status"] = "sucsuss";
+  String response;
+  serializeJson(res, response);
+  server.send(200, "application/json", response);
+  updatePins();
+}
+
+void handleFanOff()
+{
+  fanStatus = "off";
+  JsonDocument res;
+  res["status"] = "sucsuss";
+  String response;
+  serializeJson(res, response);
+  server.send(200, "application/json", response);
+  updatePins();
+}
+
+void handleLightOn()
+{
+  lightStatus = "on";
+  JsonDocument res;
+  res["status"] = "sucsuss";
+  String response;
+  serializeJson(res, response);
+  server.send(200, "application/json", response);
+  updatePins();
+}
+
+void handleLightOff()
+{
+  lightStatus = "off";
+  JsonDocument res;
+  res["status"] = "sucsuss";
+  String response;
+  serializeJson(res, response);
+  server.send(200, "application/json", response);
+  updatePins();
 }
 
 // Handle GET request
@@ -109,6 +154,18 @@ void handlePost()
 void setup()
 {
   Serial.begin(9600);
+  // Static IP configuration
+  IPAddress local_IP(192, 168, 1, 101); // Your desired static IP
+  IPAddress gateway(192, 168, 1, 1);    // Your router's gateway IP
+  IPAddress subnet(255, 255, 255, 0);   // Subnet mask
+  IPAddress primaryDNS(8, 8, 8, 8);     // Google DNS (or your choice)
+
+  // Attempt to configure static IP
+  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS))
+  {
+    Serial.println("Static IP configuration failed!");
+  }
+
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
 
@@ -135,6 +192,10 @@ void setup()
 
   server.on("/data", HTTP_GET, handleGet);
   server.on("/data", HTTP_POST, handlePost);
+  server.on("/fanOn", HTTP_GET, handleFanOn);
+  server.on("/fanOff", HTTP_GET, handleFanOff);
+  server.on("/lightOn", HTTP_GET, handleLightOn);
+  server.on("/lightOff", HTTP_GET, handleLightOff);
 
   // CORS Preflight support (OPTIONS request)
   server.on("/data", HTTP_OPTIONS, []()
@@ -195,13 +256,14 @@ void loop()
   currentHour = timeClient.getHours();
 
   currentminuts = timeClient.getMinutes();
-  if (currentHour == alarmHour && currentminuts == alarmMinuts) {
-  // Set light ON
-  lightStatus = "on";
-  digitalWrite(pin5, LOW);
+  if (currentHour == alarmHour && currentminuts == alarmMinuts)
+  {
+    // Set light ON
+    lightStatus = "on";
+    digitalWrite(pin5, LOW);
 
-  // Set fan OFF
-  fanStatus = "off";
-  digitalWrite(pin4, HIGH);
-}
+    // Set fan OFF
+    fanStatus = "off";
+    digitalWrite(pin4, HIGH);
+  }
 }

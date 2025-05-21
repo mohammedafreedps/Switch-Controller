@@ -93,12 +93,54 @@ void handleLightOff()
   updatePins();
 }
 
+void handleAlarmDetail(){
+  JsonDocument res;
+  res["hour"] = alarmHour;
+  res["minnuts"] = alarmMinuts;
+  String response;
+  serializeJson(res, response);
+  server.send(200,"application/json", response);
+}
+
+void handleSetAlarmDetail() {
+  sendCorsHeaders();
+  
+  if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+
+    if (error) {
+      server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+      return;
+    }
+
+    // Extract alarm details from JSON
+    if (doc.containsKey("hour") && doc.containsKey("minuts")) {
+      alarmHour = doc["hour"];
+      alarmMinuts = doc["minuts"];
+
+      JsonDocument res;
+      res["status"] = "success";
+      res["alarmHour"] = alarmHour;
+      res["alarmMinuts"] = alarmMinuts;
+      String response;
+      serializeJson(res, response);
+      server.send(200, "application/json", response);
+    } else {
+      server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing hour or minutes\"}");
+    }
+  } else {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No JSON body\"}");
+  }
+}
+
 // Handle GET request
 void handleGet()
 {
   sendCorsHeaders();
 
   JsonDocument doc; // use JsonDocument instead of DynamicJsonDocument
+  doc["status"] = "succuss";
   doc["lightStatus"] = lightStatus;
   doc["fanStatus"] = fanStatus;
   doc["Hour"] = currentHour;
@@ -196,6 +238,8 @@ void setup()
   server.on("/fanOff", HTTP_GET, handleFanOff);
   server.on("/lightOn", HTTP_GET, handleLightOn);
   server.on("/lightOff", HTTP_GET, handleLightOff);
+  server.on("/getAlarmDetails", HTTP_GET,handleAlarmDetail);
+  server.on("/setAlarmDetails",HTTP_POST,handleSetAlarmDetail);
 
   // CORS Preflight support (OPTIONS request)
   server.on("/data", HTTP_OPTIONS, []()
@@ -256,7 +300,7 @@ void loop()
   currentHour = timeClient.getHours();
 
   currentminuts = timeClient.getMinutes();
-  if (currentHour == alarmHour && currentminuts == alarmMinuts)
+  if (currentHour == alarmHour && currentminuts == alarmMinuts && alarmHour != 0 && alarmMinuts != 0)
   {
     // Set light ON
     lightStatus = "on";

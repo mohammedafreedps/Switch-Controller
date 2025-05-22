@@ -7,12 +7,15 @@
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
 #include <NTPClient.h>
+#include <Adafruit_NeoPixel.h>
 
 const char *ssid = "MO";
 const char *password = "yespass1234";
 
-const int pin4 = 4; // GPIO4 (D2)
-const int pin5 = 5; // GPIO5 (D1)
+const int pin4 = 4;               // GPIO4 (D2)
+const int pin5 = 5;               // GPIO5 (D1)
+const int INDICATOR_LED_PIN = 13; // GPIO13 (D7)
+const int NUM_LEDS = 1;           // Number of LEDs
 
 const int lightSwitchPin = 14; // D5
 const int fanSwitchPin = 12;   // D6
@@ -32,6 +35,8 @@ String lightStatus = "off";
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800);
+
+Adafruit_NeoPixel strip(NUM_LEDS, INDICATOR_LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // Function to send CORS headers
 void sendCorsHeaders()
@@ -93,29 +98,34 @@ void handleLightOff()
   updatePins();
 }
 
-void handleAlarmDetail(){
+void handleAlarmDetail()
+{
   JsonDocument res;
   res["hour"] = alarmHour;
   res["minnuts"] = alarmMinuts;
   String response;
   serializeJson(res, response);
-  server.send(200,"application/json", response);
+  server.send(200, "application/json", response);
 }
 
-void handleSetAlarmDetail() {
+void handleSetAlarmDetail()
+{
   sendCorsHeaders();
-  
-  if (server.hasArg("plain")) {
+
+  if (server.hasArg("plain"))
+  {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
 
-    if (error) {
+    if (error)
+    {
       server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
       return;
     }
 
     // Extract alarm details from JSON
-    if (doc.containsKey("hour") && doc.containsKey("minuts")) {
+    if (doc["hour"].is<int>() && doc["minuts"].is<int>())
+    {
       alarmHour = doc["hour"];
       alarmMinuts = doc["minuts"];
 
@@ -126,10 +136,14 @@ void handleSetAlarmDetail() {
       String response;
       serializeJson(res, response);
       server.send(200, "application/json", response);
-    } else {
+    }
+    else
+    {
       server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing hour or minutes\"}");
     }
-  } else {
+  }
+  else
+  {
     server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No JSON body\"}");
   }
 }
@@ -193,10 +207,45 @@ void handlePost()
   }
 }
 
+void fadeColorLED(uint8_t r, uint8_t g, uint8_t b, int delayMs = 10)
+{
+  // Fade in
+  for (int brightness = 0; brightness <= 255; brightness += 5)
+  {
+    strip.setBrightness(brightness);
+    strip.setPixelColor(0, strip.Color(r, g, b));
+    strip.show();
+    delay(delayMs);
+  }
+
+  // Fade out
+  for (int brightness = 255; brightness >= 0; brightness -= 5)
+  {
+    strip.setBrightness(brightness);
+    strip.setPixelColor(0, strip.Color(r, g, b));
+    strip.show();
+    delay(delayMs);
+  }
+}
+
+uint32_t hexToColor(uint32_t hex)
+{
+  uint8_t r = (hex >> 16) & 0xFF;
+  uint8_t g = (hex >> 8) & 0xFF;
+  uint8_t b = hex & 0xFF;
+  return strip.Color(r, g, b);
+}
+
 void setup()
 {
   Serial.begin(9600);
   // Static IP configuration
+  strip.begin();
+  strip.show();
+  strip.setBrightness(50);
+  strip.setPixelColor(0, strip.Color(255, 0, 0));
+  strip.show();
+
   IPAddress local_IP(192, 168, 1, 101); // Your desired static IP
   IPAddress gateway(192, 168, 1, 1);    // Your router's gateway IP
   IPAddress subnet(255, 255, 255, 0);   // Subnet mask
@@ -222,7 +271,7 @@ void setup()
 
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(500);
+    fadeColorLED(255, 0, 0);
     Serial.print(".");
   }
 
@@ -232,14 +281,17 @@ void setup()
   Serial.println("\nConnected! IP address: ");
   Serial.println(WiFi.localIP());
 
+  strip.setPixelColor(0, strip.Color(0, 255, 0));
+  strip.show();
+
   server.on("/data", HTTP_GET, handleGet);
   server.on("/data", HTTP_POST, handlePost);
   server.on("/fanOn", HTTP_GET, handleFanOn);
   server.on("/fanOff", HTTP_GET, handleFanOff);
   server.on("/lightOn", HTTP_GET, handleLightOn);
   server.on("/lightOff", HTTP_GET, handleLightOff);
-  server.on("/getAlarmDetails", HTTP_GET,handleAlarmDetail);
-  server.on("/setAlarmDetails",HTTP_POST,handleSetAlarmDetail);
+  server.on("/getAlarmDetails", HTTP_GET, handleAlarmDetail);
+  server.on("/setAlarmDetails", HTTP_POST, handleSetAlarmDetail);
 
   // CORS Preflight support (OPTIONS request)
   server.on("/data", HTTP_OPTIONS, []()
@@ -264,6 +316,38 @@ void loop()
   // Read current switch state
   bool currentLightSwitchState = digitalRead(lightSwitchPin);
   bool currentFanSwitchState = digitalRead(fanSwitchPin);
+
+  int ledBrightness = 5; // default
+
+  if (currentHour >= 6 && currentHour < 9)
+  {
+    ledBrightness = 100; // Morning boost
+  }
+  else if (currentHour >= 9 && currentHour < 18)
+  {
+    ledBrightness = 30; // Daytime
+  }
+  else if (currentHour >= 18 && currentHour < 22)
+  {
+    ledBrightness = 10; // Evening
+  }
+  else
+  {
+    ledBrightness = 1; // Night / Bedtime
+  }
+
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    // WiFi disconnected → turn LED red
+    fadeColorLED(255, 0, 0);
+    strip.show();
+  }
+  else
+  {
+    strip.setPixelColor(0, hexToColor(0xB2C9AD));
+    strip.setBrightness(ledBrightness);
+    strip.show();
+  }
 
   // If light switch changed position
   if (currentLightSwitchState != lastLightSwitchState)
